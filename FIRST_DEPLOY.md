@@ -9,7 +9,7 @@
   - Amazon Titan Text Embeddings V2
   - Anthropic Claude 3 Haiku
 
-## Clone GIT Repo
+## Clone the GIT Repo
 
 git clone <https://github.com/aws-samples/eks-access-controls-bedrock-agent.git>
 
