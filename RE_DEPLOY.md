@@ -47,4 +47,4 @@ Update your `eks-access-controls-template.yaml` file by running this CMD in root
 
 ```
 
-Now update the deployed stack in the AWS account.
+Now update the deployed stack in AWS account.
