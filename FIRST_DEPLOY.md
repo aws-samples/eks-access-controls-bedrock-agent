@@ -1,17 +1,18 @@
-# eks-access-controls-bedrock-agent
+# First Deploy
 
-## Getting started
-
-### Pre-requisite
+## Pre-requisite
 
 - Your CLI should have AWS account programmatic access. (aws configure)
 - You should have access to the specific base models (ENABLE IT IN THE AWS ACCOUNT)
   - Amazon Titan Text Embeddings V2
   - Anthropic Claude 3 Haiku
 
-## Clone the GIT Repo
+## Clone GIT Repo
 
-git clone <https://github.com/aws-samples/eks-access-controls-bedrock-agent.git>
+```shell
+git clone https://github.com/aws-samples/eks-access-controls-bedrock-agent.git
+```
+
 
 ## Get Account ID -
 
