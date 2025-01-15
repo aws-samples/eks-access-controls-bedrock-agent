@@ -1,0 +1,376 @@
+openapi: 3.0.0
+info:
+    title: Kubernetes cluster access controls.
+    version: 1.0.0
+    description: API for creating access entry controls for EKS Cluster and providing IAM access for kubernetes resources through Service Accounts and Pod Identity.
+paths:
+    /create-access-entry:
+        post:
+            summary: API to create access entry and associating it with an access policy for an IAM principal in EKS.
+            description: Create access entry for EKS Cluster for an IAM user or IAM role entered by the user. This API should be called every time the user wants to give access for an IAM principal to the EKS cluster by creating an access entry and EKS access policy.
+            operationId: createAccessEntry
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to create EKS access entry for.
+                      principalArn:
+                        type: string
+                        description: The ARN of the IAM principal to create as an EKS access entry.
+                      accessPolicy:
+                        type: string
+                        description: The ARN of the access policy to attach to the EKS access entry. Get the Access Policy ARN from the description of the access policy which the user mentions.
+                      namespaces:
+                        type: string
+                        description: The namespaces for which the Access policy must be restricted to, represented as a comma-separated string.
+                        example: "default,kube-system,my-namespace"
+                    required:
+                      - clusterName
+                      - principalArn
+                      - accessPolicy
+                      
+            responses:
+                '200':
+                    description: Successfully created EKS access entry and attached the EKS access policy.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                description: Object of access entry created along with the respective access policy.
+                                properties:
+                                  accessEntryArn:
+                                    type: string
+                                    description: Message saying if it was successfully created or not.
+                                  accessPolicy: 
+                                    type: string
+                                    description: Message saying if it was successfully attached or not.
+                                            
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+    
+    /describe-access-entry:
+        post:
+            summary: API to describe an access entry and the associated access policies for it in EKS.
+            description: Describe the user entered EKS Access Entry ARN by showing which EKS Access policies are attached to which namespaces for it in the EKS Cluster.
+            operationId: DescribeAccessEntry
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to describe EKS access entry for.
+                      principalArn:
+                        type: string
+                        description: The ARN of the access entry to describe from the EKS cluster.
+                    required:
+                      - clusterName
+                      - principalArn
+                      
+            responses:
+                '200':
+                    description: Successfully described the access policies attached to an EKS Access entry.
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                description: Array showing the properties of each EKS Access policy attached to the access entry.
+                                maxItems: 20  # Add an appropriate maximum number of item
+                                items:
+                                  type: object
+                                  description: Object of the individual associated EKS Access policies showing their ARN and the access scope.
+                                  properties:
+                                    policyArn:
+                                      type: string
+                                      description: The ARN of the individual EKS Access Policy.
+                                    accessScope: 
+                                      type: object
+                                      description: Object showing the scope of the EKS Access policy.
+                                      properties:
+                                        type:
+                                          type: string
+                                          description: Access scope being cluster level or namespace level.
+                                        namespaces:
+                                          type: string
+                                          description: List of namespaces if the access scope is namespace level.
+                                            
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+    
+    /delete-access-entry:
+        post:
+            summary: API to delete an access entry and the associated access policies for it in EKS.
+            description: Delete the user entered EKS Access Entry ARN for the EKS Cluster.
+            operationId: DeleteAccessEntry
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to delete EKS access entry for.
+                      principalArn:
+                        type: string
+                        description: The ARN of the Access entry to delete from the EKS Cluster.
+                    required:
+                      - clusterName
+                      - principalArn
+                            
+            responses:
+                '200':
+                    description: Successfully deleted the access entry for the EKS Cluster.
+                    content:
+                        application/json:
+                            schema:
+                              type: object
+                              description: Object showing whether the access entry has been deleted or not from the cluster.
+                              properties:
+                                accessEntryArn:
+                                  type: string
+                                  description: Message saying whether the EKS access entry has been deleted or not from the cluster. 
+                                            
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+    
+    /attach-access-policy:
+        post:
+            summary: API to attach an access policy for an existing EKS Access entry in an EKS Cluster.
+            description: Attach the user entered EKS policy ARN for the EKS Access entry.
+            operationId: AttachAccessPolicy
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to attach EKS Access policy for.
+                      principalArn:
+                        type: string
+                        description: The ARN of the Access entry to attach EKS Access policy for.
+                      accessPolicy:
+                        type: string
+                        description: The ARN of the access policy to attach to the access entry.
+                      namespaces:
+                        type: string
+                        description: The namespaces for which the Access policy must be restricted to, represented as a comma-separated string.
+                        example: "default,kube-system,my-namespace"
+                    required:
+                      - clusterName
+                      - principalArn
+                      - accessPolicy
+                            
+            responses:
+                '200':
+                    description: Successfully attached the access policy for the mentioned EKS access entry.
+                    content:
+                        application/json:
+                            schema:
+                              type: object
+                              description: Object showing whether the access policy has been attached or not for the access entry.
+                              properties:
+                                accessPolicyArn:
+                                  type: string
+                                  description: Message saying whether the EKS access policy has been attached or not for the EKS access entry.
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+    
+    /delete-access-policy:
+        post:
+            summary: API to delete an access policy from an EKS Access entry for an EKS Cluster.
+            description: Delete the user entered EKS policy ARN from the EKS Access entry.
+            operationId: DeleteAccessPolicy
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to delete the access policy for.
+                      principalArn:
+                        type: string
+                        description: The ARN of the access entry to delete the access policy for.
+                      accessPolicy:
+                        type: string
+                        description: The ARN of the access policy to delete from the access entry.
+                    required:
+                      - clusterName
+                      - principalArn
+                      - accessPolicy
+                            
+            responses:
+                '200':
+                    description: Successfully deleted the access policy for the mentioned EKS access entry.
+                    content:
+                        application/json:
+                            schema:
+                              type: object
+                              description: Object showing whether the access policy has been deleted or not from the access entry.
+                              properties:
+                                accessPolicyArn:
+                                  type: string
+                                  description: Message saying whether the EKS access policy has been deleted or not from the EKS access entry.
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+
+    /create-pod-identity-association:
+        post:
+            summary: API to create pod identity association and associating it with serviceaccount of specific namespace for an IAM role in EKS.
+            description: Create pod identity association for serviceaccount of specific namespace in EKS Cluster for an IAM user or IAM role entered by the user. This API should be called every time the user wants to give access for an IAM principal to the EKS cluster by creating Pod Identity association.
+            operationId: createPodIdentityAssociation
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to create pod identity association for.
+                      roleArn:
+                        type: string
+                        description: The ARN of the IAM principal to create as pod identity association.
+                        default: "default"
+                      serviceAccount:
+                        type: string
+                        description: The name of the service account to attach to the pod identity association. Get the name of service account from the description of the service account which the user mentions.
+                      namespace:
+                        type: string
+                        description: The namespace in which that service account exists.
+                    required:
+                      - clusterName
+                      - serviceAccount
+                      - namespace
+            responses:
+                '200':
+                    description: Successfully created pod identity association and attached to given serviceAccount of given namespace.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                description: Object of pod identity association created along with the respective IAM Role and Serviceaccount.
+                                properties:
+                                  RoleName:
+                                    type: string
+                                    description: The Name of the Role created for pod identity association if user has not provided the principalArn.
+                                  associationId:
+                                    type: string
+                                    description: The unique ID of pod identity association.
+                                  roleArn: 
+                                    type: string
+                                    description: The value of the IAM Role ARN for which pod identity association is done.
+                                  serviceAccount: 
+                                    type: string
+                                    description: The value of the service Account to which pod identity association is done.
+                                  namespace:
+                                    type: string
+                                    description: The value of the namespace to which pod identity association is done.
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+
+    /describe-pod-identity-association:
+        post:
+            summary: API to describe pod identity association and the IAM Role attached to the association.
+            description: Describe the user entered pod identity association ID by showing which IAM Role is attached to which Serviceaccount and in which namespace in the EKS Cluster.
+            operationId: DescribePodIdentityAssociation
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to describe pod identity association for.
+                      associationId:
+                        type: string
+                        description: The ID of the association to describe pod identity association from the EKS cluster.
+                    required:
+                      - clusterName
+                      - associationId
+            responses:
+                '200':
+                    description: Successfully described the pod identity association attached to the Serviceaccount.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                description: Object of the individual pod identity association based on association ID and showing their details.
+                                properties:
+                                  namespace:
+                                    type: string
+                                    description: The value of the namespace attached to the association ID.
+                                  serviceAccount:
+                                    type: string
+                                    description: The value of the serviceAccount attached to the association ID.
+                                  roleArn:
+                                    type: string
+                                    description: The value of the IAM Role ARN attached to the association ID.
+                                  associationArn:
+                                    type: string
+                                    description: The value of the association ARN attached to the association ID.
+                                  associationId:
+                                    type: string
+                                    description: The value of the association ID described.
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.
+
+    /delete-pod-identity-association:
+        post:
+            summary: API to delete pod identity association for the given association ID.
+            description: Delete the user entered pod identity association ID.
+            operationId: DeletePodIdentityAssociation
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      clusterName:
+                        type: string
+                        description: Name of the EKS cluster to delete pod identity association for.
+                      associationId:
+                        type: string
+                        description: The ID of the association to delete pod identity association from the EKS cluster.
+                    required:
+                      - clusterName
+                      - associationId
+            responses:
+                '200':
+                    description: Successfully deleted the pod identity association attached to the EKS Cluster.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                description: Object of the individual pod identity association based on association ID and showing their details which got deleted.
+                                properties:
+                                  roleArn:
+                                    type: string
+                                    description: The value of the IAM Role ARN for which the association is deleted from the pod identity association.
+                                  serviceAccount:
+                                    type: string
+                                    description: The value of the serviceAccount for which the association is deleted from the pod identity association.
+                                  namespace:
+                                    type: string
+                                    description: The value of the namespace for which the association is deleted from the pod identity association.
+                '400':
+                    description: Bad request. One or more required fields are missing or invalid.

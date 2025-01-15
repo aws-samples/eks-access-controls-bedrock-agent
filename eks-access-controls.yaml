@@ -1,0 +1,841 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Bedrock Agents for EKS access controls
+
+Parameters:
+
+  EKSClusterName:
+    Description: Name of the EKS Cluster
+    Type: String
+    Default: eks-testing-new
+  
+  #Refer Bedrock model list for supported regions to change preference.
+  EmbeddingModelARN:
+    Type: String
+    Default: arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0
+
+  FoundationModelName: 
+    Type: String
+    Default: anthropic.claude-3-haiku-20240307-v1:0
+  
+  #Refer Bedrock model list for supported regions to change preference.
+  FoundationModelARN:
+    Type: String
+    Default: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+
+  AgentInstruction: 
+    Type: String
+    Default: >
+      You are a Kubernetes expert that can interact with the Amazon EKS cluster API server.
+      You can query the API Server of an Amazon EKS cluster in order to help users setup EKS
+      access entries along with access policies. You can also help users setup IAM access for
+      the pods and namespaces in the EKS cluster through EKS pod identity and IRSA.
+
+Resources:
+
+  #VPC and Lambda Security group creation
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: BedrockAgentVPC
+    Metadata: 
+      cfn_nag:
+        rules_to_suppress:
+          - id: W60
+            reason: "VPC flow log is not required for this demo solution"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Lambda-IGW
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: Name
+          Value: Lambda Public Subnet 1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.0.2.0/24
+      Tags:
+        - Key: Name
+          Value: Lambda Public Subnet 2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Lambda Private Subnet 1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: Lambda Private Subnet 2
+
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Lambda Public Routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Lambda Private Routes (AZ1)
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Lambda Private Routes (AZ2)
+
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+  OSLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Opensearch Lambda function
+      VpcId: !Ref VPC
+  
+  OSLambdaSGEgress1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !GetAtt OSLambdaSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationSecurityGroupId: !GetAtt EndpointSecurityGroup.GroupId
+      Description: Allow lambda to access opensearch aoss api calls
+  
+  OSLambdaSGEgress2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !GetAtt OSLambdaSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationPrefixListId: "pl-63a5400a"
+      Description: Allow lambda to access cloudformation api calls
+  
+  OpenSearchVPCEndpoint:
+    Type: AWS::OpenSearchServerless::VpcEndpoint
+    Properties:
+      Name: lambda-opensearch-endpoint
+      VpcId: !Ref VPC
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: 
+        - !GetAtt EndpointSecurityGroup.GroupId
+  
+  EKSAUTHVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.eks-auth'
+      VpcId: !Ref VPC
+      VpcEndpointType: Interface
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: 
+        - !GetAtt EndpointSecurityGroup.GroupId
+      PrivateDnsEnabled: true
+
+  EKSVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.eks'
+      VpcId: !Ref VPC
+      VpcEndpointType: Interface
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: 
+        - !GetAtt EndpointSecurityGroup.GroupId
+      PrivateDnsEnabled: true
+
+  IAMVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub 'com.amazonaws.iam'
+      VpcId: !Ref VPC
+      VpcEndpointType: Interface
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: 
+        - !GetAtt EndpointSecurityGroup.GroupId
+      PrivateDnsEnabled: true
+
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for OpenSearch Serverless VPC Endpoint
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet1.CidrBlock
+          Description: Allow the private subnet to access VPC endpoints
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet2.CidrBlock
+          Description: Allow the private subnet to access VPC endpoints
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet1.CidrBlock
+          Description: Allow the private subnet to access VPC endpoints
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet2.CidrBlock
+          Description: Allow the private subnet to access VPC endpoints
+
+  AGLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Action group Lambda function
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet1.CidrBlock
+          Description: Allow lambda to access EKS api calls
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet2.CidrBlock
+          Description: Allow lambda to access EKS api calls
+
+  # Indexer Lambda Function IAM Role
+  CustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+
+  # Indexer Lambda Function IAM Policy
+  CustomResourcePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: aoss:APIAccessAll
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - OpenSearchCollection
+                - Arn
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+            Resource: 
+              Fn::GetAtt: 
+                - CustomerManagedKeyAgent
+                - Arn
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:ListBucket
+            Resource: 
+              - "arn:aws:s3:::cloudformation-custom-resource-response-useast1/*"
+              - "arn:aws:s3:::cloudformation-custom-resource-response-useast1"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource: 
+              - !Sub "arn:aws:s3:::bedrock-agent-lambda-artifacts-${AWS::AccountId}/*"
+              - !Sub "arn:aws:s3:::bedrock-agent-lambda-artifacts-${AWS::AccountId}"
+        Version: "2012-10-17"
+      PolicyName: CustomResourcePolicy
+      Roles:
+        - Ref: CustomResourceRole
+
+  # Network Access Policy for OpenSearch Collection
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: opensearch-network-policy
+      Policy: 
+             !Sub |
+             [{
+               "Rules": [
+                  {
+                    "Resource": ["collection/opensearch-vector-collection"],
+                    "ResourceType": "dashboard"
+                  }, 
+                  {
+                    "Resource": ["collection/opensearch-vector-collection"], 
+                    "ResourceType": "collection"
+                  }], 
+                    "AllowFromPublic": false, 
+                    "SourceVPCEs": ["${OpenSearchVPCEndpoint}"],
+                    "SourceServices": ["bedrock.amazonaws.com"]
+              }]
+      Type: network
+
+  # Encryption Policy for OpenSearch Collection
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: opensearch-encryption-policy
+      Policy: '{"Rules": [{"ResourceType": "collection", "Resource": ["collection/opensearch-vector-collection"]}], "AWSOwnedKey": true}'
+      Type: encryption
+
+  # Data Access Policy for OpenSearch Collection
+  OpenSearchDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: embeddings-access-policy
+      Policy:
+        Fn::Join:
+          - ""
+          - - '[{"Rules": [{"Resource": ["collection/opensearch-vector-collection"], "Permission": ["aoss:DescribeCollectionItems", "aoss:CreateCollectionItems", "aoss:UpdateCollectionItems"], "ResourceType": "collection"}, {"Resource": ["index/opensearch-vector-collection/*"], "Permission": ["aoss:UpdateIndex", "aoss:DescribeIndex", "aoss:ReadDocument", "aoss:WriteDocument", "aoss:CreateIndex"], "ResourceType": "index"}], "Principal": ["'
+            - Fn::GetAtt:
+                - CustomResourceRole
+                - Arn
+            - '", "'
+            - Fn::GetAtt:
+                - BedrockKnowledgeBaseRole
+                - Arn
+            - '"]}]'
+      Type: data
+  
+  OpenSearchCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Properties:
+      Name: opensearch-vector-collection
+      Type: VECTORSEARCH
+    DependsOn:
+      - OpenSearchDataAccessPolicy
+      - OpenSearchEncryptionPolicy
+      - OpenSearchNetworkPolicy
+  
+  CustomResourceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code: opensearch-lambda/.
+      Environment:
+        Variables:
+          COLLECTION_ENDPOINT:
+            Fn::GetAtt:
+              - OpenSearchCollection
+              - CollectionEndpoint
+          VECTOR_INDEX_NAME: vector-index
+          VECTOR_FIELD_NAME: vector-field
+          TEXT_FIELD: text-field
+          METADATA_FIELD: metadata-field
+      Handler: opensearch-lambda.handler
+      ReservedConcurrentExecutions: 5
+      KmsKeyArn: 
+        Fn::GetAtt:
+          - CustomerManagedKeyAgent
+          - Arn
+      VpcConfig:
+        SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+        SecurityGroupIds: [!GetAtt OSLambdaSecurityGroup.GroupId]
+      Role:
+        Fn::GetAtt:
+          - CustomResourceRole
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 900
+    DependsOn:
+      - CustomResourcePolicy
+      - OSLambdaSGEgress1
+      - OSLambdaSGEgress2
+  
+  CustomResource:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - CustomResourceFunction
+          - Arn
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+  
+  ActionGroupFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+    DependsOn: CustomResource
+
+  ActionGroupFunctionPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: 
+              - eks:DescribeCluster
+              - eks:CreateAccessEntry
+              - eks:ListAccessEntries
+              - eks:ListPodIdentityAssociations
+              - eks:CreatePodIdentityAssociation
+            Resource:
+              - !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${EKSClusterName}"
+          
+          - Effect: Allow
+            Action: 
+              - eks:DescribeAccessEntry
+              - eks:UpdateAccessEntry
+              - eks:DeleteAccessEntry
+              - eks:AssociateAccessPolicy
+              - eks:DisassociateAccessPolicy
+              - eks:ListAccessPolicies
+              - eks:ListAssociatedAccessPolicies
+            Resource:
+              - !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:access-entry/${EKSClusterName}*"
+          
+          - Effect: Allow
+            Action: 
+              - eks:DeletePodIdentityAssociation
+              - eks:DescribePodIdentityAssociation
+              - eks:UpdatePodIdentityAssociation
+            Resource:
+              - !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:podidentityassociation/${EKSClusterName}*"
+          
+          - Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:PassRole
+              - iam:GetRole
+            Resource:
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/*
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+            Resource: 
+              Fn::GetAtt: 
+                - CustomerManagedKeyAgent
+                - Arn
+          - Effect: Allow
+            Action: 
+              - sts:GetCallerIdentity
+            Resource:
+              - "*"
+              
+      PolicyName: ActionGroupFunctionPolicy
+      Roles:
+        - Ref: ActionGroupFunctionRole
+    DependsOn: CustomResource
+    Metadata: 
+      cfn_nag:
+        rules_to_suppress:
+          - id: W12
+            reason: "STS action only supports * resource."
+  
+  ActionGroupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code: eks-lambda/.
+      Environment:
+        Variables:
+          CLUSTER_NAME:
+            Ref: EKSClusterName
+      FunctionName: bedrock-agent-eks-access-control
+      Handler: eks-lambda.handler
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
+      KmsKeyArn: 
+        Fn::GetAtt:
+          - CustomerManagedKeyAgent
+          - Arn
+      VpcConfig:
+        SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+        SecurityGroupIds: [!GetAtt AGLambdaSecurityGroup.GroupId]
+      Role:
+        Fn::GetAtt:
+          - ActionGroupFunctionRole
+          - Arn
+      Runtime: nodejs20.x
+      Timeout: 900
+    DependsOn:
+      - ActionGroupFunctionPolicy
+
+  # Bedrock Agent Lambda Permission
+  ActionGroupFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - ActionGroupFunction
+          - Arn
+      Principal: bedrock.amazonaws.com
+      SourceAccount:
+        Ref: AWS::AccountId
+      SourceArn:
+        Fn::GetAtt:
+          - BedrockAgent 
+          - AgentArn
+  
+  # Bedrock Knowledge Base IAM Role
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+
+  BedrockKnowledgeBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: BedrockKnowledgeBasePolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: bedrock:InvokeModel
+            Effect: Allow
+            Resource: 
+              - Ref: EmbeddingModelARN
+
+          - Action: s3:ListBucket
+            Effect: Allow
+            Resource:
+              - !Sub "arn:aws:s3:::eks-knowledge-base-${AWS::AccountId}"
+
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource:
+              - !Sub "arn:aws:s3:::eks-knowledge-base-${AWS::AccountId}/*"
+
+          - Action: aoss:APIAccessAll
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - OpenSearchCollection
+                - Arn
+      Roles:
+        - Ref: BedrockKnowledgeBaseRole
+
+  BedrockKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: eks-access-control-knowledge-base
+      RoleArn: 
+        Fn::GetAtt:
+          - BedrockKnowledgeBaseRole
+          - Arn
+      KnowledgeBaseConfiguration:
+        Type: "VECTOR"
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: 
+            Ref: EmbeddingModelARN
+      StorageConfiguration:
+        Type: "OPENSEARCH_SERVERLESS"
+        OpensearchServerlessConfiguration:
+          CollectionArn:
+            Fn::GetAtt:
+              - OpenSearchCollection
+              - Arn
+          VectorIndexName: vector-index
+          FieldMapping:
+            VectorField: vector-field
+            TextField: text-field
+            MetadataField: metadata-field
+    DependsOn: 
+      - BedrockKnowledgeBasePolicy
+      - ActionGroupFunction
+      - CustomResource
+
+  DataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: 
+        Ref: BedrockKnowledgeBase
+      Name: eks-data-source
+      DataSourceConfiguration:
+        Type: "S3"
+        S3Configuration:
+          BucketArn: !Sub "arn:aws:s3:::eks-knowledge-base-${AWS::AccountId}"
+  
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+
+  BedrockAgentPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: bedrock:InvokeModel
+            Effect: Allow
+            Resource: 
+              - Ref: FoundationModelARN
+          
+          - Action: bedrock:ApplyGuardrail
+            Effect: Allow
+            Resource: !GetAtt BedrockGuardrail.GuardrailArn
+
+          - Action: bedrock:Retrieve
+            Effect: Allow
+            Resource:
+              Fn::GetAtt:
+                - BedrockKnowledgeBase
+                - KnowledgeBaseArn
+
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource:
+              - !Sub "arn:aws:s3:::eks-openapi-schema-${AWS::AccountId}/openapi-schema.yaml"
+            
+      PolicyName: BedrockAgentPolicy
+      Roles:
+        - Ref: BedrockAgentRole
+
+  BedrockGuardrail:
+    Type: 'AWS::Bedrock::Guardrail'
+    Properties:
+      Name: BedrockGuardrailEKSAgent
+      Description: Bedrock guardrail for basic filtering
+      BlockedInputMessaging: Guardrail applied based on user input.
+      BlockedOutputsMessaging: Guardrail applied based on LLM output
+      ContentPolicyConfig:
+        FiltersConfig:
+          - InputStrength : HIGH
+            OutputStrength: HIGH
+            Type: SEXUAL
+          - InputStrength : HIGH
+            OutputStrength: HIGH
+            Type: VIOLENCE
+          - InputStrength : HIGH
+            OutputStrength: HIGH
+            Type: HATE
+          - InputStrength : HIGH
+            OutputStrength: HIGH
+            Type: MISCONDUCT
+          - InputStrength : NONE
+            OutputStrength: NONE
+            Type: PROMPT_ATTACK
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Action: BLOCK
+            Type: EMAIL
+          - Action: BLOCK
+            Type: PASSWORD
+          - Action: ANONYMIZE
+            Type: IP_ADDRESS
+
+  CustomerManagedKeyAgent:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'CMK for Bedrock Agent encryption'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'Enable IAM User Permissions'
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: 'Allow Bedrock to use the key'
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: '*'
+          - Sid: 'Allow Lambda to use the key'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:RevokeGrant
+            Resource: '*'
+      Tags:
+        - Key: Purpose
+          Value: BedrockAgentEncryption
+
+  # Optional: Create an alias for the key for easier identification
+  CustomerManagedKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${AWS::StackName}-bedrock-agent-key'
+      TargetKeyId: !Ref CustomerManagedKeyAgent
+
+
+  # Bedrock Agent Configuration
+  BedrockAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: eks-bedrock-agent
+      AgentResourceRoleArn: 
+        Fn::GetAtt:
+          - BedrockAgentRole
+          - Arn
+      CustomerEncryptionKeyArn: 
+        Fn::GetAtt:
+          - CustomerManagedKeyAgent
+          - Arn
+      FoundationModel:
+        Ref: FoundationModelName
+      Instruction: 
+        Ref: AgentInstruction
+      GuardrailConfiguration:
+        GuardrailIdentifier: !GetAtt BedrockGuardrail.GuardrailArn
+        GuardrailVersion: DRAFT
+      ActionGroups:
+        - ActionGroupName: eks-action-group
+          Description: "Action Group for EKS Cluster"
+          ActionGroupExecutor:
+            Lambda: 
+              Fn::GetAtt:
+                - ActionGroupFunction
+                - Arn
+          ApiSchema:
+            S3:
+              S3BucketName: !Sub "eks-openapi-schema-${AWS::AccountId}"
+              S3ObjectKey: openapi-schema.yaml
+      KnowledgeBases:
+        - KnowledgeBaseId: 
+            Ref: BedrockKnowledgeBase
+          Description: "Amazon EKS documentation for access controls"
+          KnowledgeBaseState: ENABLED

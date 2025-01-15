@@ -1,0 +1,34 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: eks-testing-new
+  region: us-east-1
+  version: "1.31"
+
+privateCluster:
+  enabled: true
+
+vpc:
+  id: VPC_ID
+  subnets:
+    private:
+      private-one:
+        id: PRIVATE_SUBNET1
+      private-two:
+        id: PRIVATE_SUBNET2
+
+managedNodeGroups:
+  - name: ng-1
+    instanceType: t2.large
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    privateNetworking: true
+    subnets:
+      - private-one
+      - private-two
+
+addons:
+  - name: eks-pod-identity-agent
+    version: latest
