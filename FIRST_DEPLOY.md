@@ -4,13 +4,14 @@
 
 ### Pre-requisite
 
-You should have access to the specific base models (ENABLE IT IN THE ACCOUNT)
-    - Amazon Titan Text Embeddings V2
-    - Anthropic Claude 3 Haiku
+- Your CLI should have AWS account programmatic access. (aws configure)
+- You should have access to the specific base models (ENABLE IT IN THE AWS ACCOUNT)
+  - Amazon Titan Text Embeddings V2
+  - Anthropic Claude 3 Haiku
 
 ## Clone GIT Repo
 
-git clone
+git clone <https://github.com/aws-samples/eks-access-controls-bedrock-agent.git>
 
 ## Get Account ID -
 
