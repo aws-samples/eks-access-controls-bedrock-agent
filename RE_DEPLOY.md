@@ -1,10 +1,10 @@
-# eks-access-controls-bedrock-agent
+# Re-Deploy
 
-        This repository refers to the implementations of EKS access controls using Bedrock Agent.
+This guide suggest how to update the deployed solution If there is any code or logic change has happened.
 
 ## Usage
 
-        If you are deploying this for the first time to your account follow this document - [First Deploy](FIRST_DEPLOY.md)
+If you are deploying this for the first time to your account follow this document - [First Deploy](FIRST_DEPLOY.md)
 
 ## Re-deploy/changes in code
 
@@ -16,7 +16,7 @@
 
     ```
 
-- If you have changed anything in Lambda Code either for eks-lambda or opensearch-lambda then,
+- If you have changed anything in Lambda Code. Either in `eks-lambda` or `opensearch-lambda` folder then,
 
     Run the following CMD in respective folder where you have changed the code, run in both if changes are done in both:
 
@@ -27,7 +27,7 @@
 
     ```
 
-- If you have changed anything in OpenApi Schema then,
+- If you have changed anything in `openapi-schema.yaml` file then,
 
     Run this in the root folder
 
