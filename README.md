@@ -1,4 +1,4 @@
-# Using AWS Bedrock Agents to automate creation of access entry controls in EKS by using Bedrock Agents through simple text based prompts
+# Using AWS Bedrock Agents to automate creation of access entry controls in EKS through simple text based prompts
 
 Through this solution, organizations can streamline their EKS cluster administration with simple text based prompts, reduce manual overhead, and improve overall development efficiency.
 
